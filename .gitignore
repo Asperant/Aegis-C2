@@ -1,0 +1,14 @@
+*.o
+uav_app
+*.exe
+*.out
+
+__pycache__/
+*.py[cod]
+
+.docker/
+
+.DS_Store
+Thumbs.db
+
+.vscode/
