@@ -5,47 +5,44 @@ import random
 import redis
 import psycopg2
 import time
+import os
 
 GKS_ID = random.randint(10,99)
-
 HOST = "0.0.0.0"
 PORT = 5000
 GPS_SCALE = 10000000.0
-
 PACKET_FORMAT = '<BIQiiifffBBI' 
 ACK_FORMAT = '<BIQ'
+
+DB_HOST = os.getenv("DB_HOST", "sentinel_db")
+DB_USER = os.getenv("DB_USER", "admin")
+DB_PASS = os.getenv("DB_PASS", "password123")
+DB_NAME = os.getenv("DB_NAME", "sentinel_hq")
+REDIS_HOST = os.getenv("REDIS_HOST", "redis_db")
+
+def connect_to_db():
+    conn = psycopg2.connect(host=DB_HOST, database=DB_NAME, user=DB_USER, password=DB_PASS)
+    conn.autocommit = True
+    return conn, conn.cursor()
+
+def connect_to_redis():
+    client = redis.Redis(host=REDIS_HOST, port=6379, decode_responses=True)
+    client.ping()
+    return client
 
 server_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 server_socket.bind((HOST, PORT))
 
 try:
-    r = redis.Redis(host='redis_db', port=6379, decode_responses=True)
-    r.ping()
+    pg_conn, pg_cursor = connect_to_db()
+    print(f"🗄️ [GKS-{GKS_ID}] Kara Kutu (PostgreSQL) Bağlantısı Başarılı!")
+    
+    r = connect_to_redis()
+    print(f"📡 [GKS-{GKS_ID}] Ortak Beyin (Redis) Bağlantısı Başarılı!")
 except Exception as e:
-    print(f"❌ [GKS-{GKS_ID}] Redis'e bağlanılamadı: {e}")
+    print(f"❌ [GKS-{GKS_ID}] Kritik Başlatma Hatası! Docker Healthcheck aşılamadı: {e}")
     exit(1)
 
-max_retries = 5
-for attepts in range(max_retries):
-    try:
-        pg_conn = psycopg2.connect(
-            host="sentinel_db",
-            database="sentinel_hq",
-            user="admin",
-            password="password123"
-        )
-        pg_conn.autocommit = True
-        pg_cursor = pg_conn.cursor()
-        print(f"🗄️ [GKS-{GKS_ID}] Kara Kutu (PostgreSQL) Bağlantısı Başarılı!")
-        break
-    except Exception as e:
-        print(f"❌ [GKS-{GKS_ID}] PostgreSQL'e bağlanılamadı: {e}")
-        time.sleep(3)
-else:
-    print(f"❌ [GKS-{GKS_ID}] PostgreSQL'e ulaşılamadı! Sistem kapatılıyor.")
-    exit(1)
-
-print(f"📡 [GKS-{GKS_ID}] Ortak Beyin (Redis) Bağlantısı Başarılı!")
 print(f"📊 [GKS-{GKS_ID}] Dinlemede ve Dağıtık Sürü Takibine Hazır...\n")
 
 local_fec_windows = {}
@@ -53,49 +50,30 @@ local_fec_windows = {}
 while True:
     try:
         data, address = server_socket.recvfrom(1024)
-        
-        expected_size = struct.calcsize(PACKET_FORMAT)
-
-        if len(data) != expected_size: continue
+        if len(data) != struct.calcsize(PACKET_FORMAT): continue
 
         payload = data[:-4] 
         calculated_crc = zlib.crc32(payload) & 0xFFFFFFFF
 
         unpacked_data = struct.unpack(PACKET_FORMAT, data)
-        
         magic, seq_num, timestamp, uav_id, lat_raw, lon_raw, alt, speed, batt, mode, priority, received_crc = unpacked_data
-        lat = lat_raw / GPS_SCALE
-        lon = lon_raw / GPS_SCALE
-
+        
         if magic not in [0xFF, 0xFE]: continue
-            
         if calculated_crc != received_crc: continue
 
+        lat, lon = lat_raw / GPS_SCALE, lon_raw / GPS_SCALE
         uav_key = f"uav:{uav_id}"
         
         if not r.exists(uav_key):
             print(f"\n🌐 [GKS-{GKS_ID}] YENİ BAĞLANTI: İHA-{uav_id} ağa katıldı! Sistemlere işleniyor...")
 
-            pg_cursor.execute("""
-                INSERT INTO uav_registery (uav_id)
-                VALUES (%s)
-                ON CONFLICT (uav_id) DO NOTHING;
-            """, (uav_id,))
-
-            pg_cursor.execute("""
-                INSERT INTO flight_sessions (uav_id)
-                VALUES (%s)
-                RETURNING session_id;
-            """, (uav_id,))
+            pg_cursor.execute("INSERT INTO uav_registery (uav_id) VALUES (%s) ON CONFLICT (uav_id) DO NOTHING;", (uav_id,))
+            pg_cursor.execute("INSERT INTO flight_sessions (uav_id) VALUES (%s) RETURNING session_id;", (uav_id,))
             new_session_id = pg_cursor.fetchone()[0]
 
             r.hset(uav_key, mapping={
-                "expected_seq_num": 0,
-                "total_received": 0,
-                "total_lost": 0,
-                "recovered_packets": 0,
-                "last_seen_by": GKS_ID,
-                "session_id": new_session_id
+                "expected_seq_num": 0, "total_received": 0, "total_lost": 0,
+                "recovered_packets": 0, "last_seen_by": GKS_ID, "session_id": new_session_id
             })
             local_fec_windows[uav_id] = {}
 
@@ -136,12 +114,15 @@ while True:
 
         try:
             pg_cursor.execute("""
-                INSERT INTO telemetry_logs
-                (session_id, gks_id, seq_num, latitude, longitude, altitude, speed, battery, flight_mode, priority)
+                INSERT INTO telemetry_logs (session_id, gks_id, seq_num, latitude, longitude, altitude, speed, battery, flight_mode, priority)
                 VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             """, (current_session_id, GKS_ID, seq_num, lat, lon, alt, speed, batt, mode, priority))
         except Exception as db_err:
-            print(f"⚠️ Veritabanı Yazma Hatası: {db_err}")
+            try:
+                pg_conn, pg_cursor = connect_to_db()
+                print("✅ 🗄️ Veritabanı Bağlantısı KURTARILDI! Kayıtlar devam ediyor.")
+            except Exception:
+                pass
 
         r.hincrby(uav_key, "total_received", 1)
         total_received += 1
@@ -182,8 +163,13 @@ while True:
 
         if priority == 1:
             local_fec_windows[uav_id][seq_num] = data[:-4]
-            ack_packet = struct.pack(ACK_FORMAT, 0xAA, seq_num, timestamp)
-            server_socket.sendto(ack_packet, address)
+            
+        ack_packet = struct.pack(ACK_FORMAT, 0xAA, seq_num, timestamp)
+        server_socket.sendto(ack_packet, address)
 
     except Exception as e:
-        print(f"Hata: {e}")
+        try:
+            r = connect_to_redis()
+            print("✅ 📡 Ortak Beyin KURTARILDI! Senkronizasyon devam ediyor.")
+        except Exception:
+            time.sleep(1)

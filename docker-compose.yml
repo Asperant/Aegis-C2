@@ -1,36 +1,54 @@
 services:
-
+  
   redis_db:
     image: redis:alpine
     container_name: redis_db
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
     networks:
       - sentinel_net
-  
+    
   sentinel_db:
     image: postgres:15-alpine
     container_name: sentinel_db
     environment:
-        POSTGRES_USER: admin
-        POSTGRES_PASSWORD: password123
-        POSTGRES_DB: sentinel_hq
+      POSTGRES_USER: admin
+      POSTGRES_PASSWORD: password123
+      POSTGRES_DB: sentinel_hq
     volumes:
       - sentinel_pq_data:/var/lib/postgresql/data
       - ./init.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U admin -d sentinel_hq"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
     networks:
       - sentinel_net
-
+  
   sentinel_gks:
     build: ./GKS_Server
     volumes:
       - .:/app
     working_dir: /app/GKS_Server
+    environment:
+      - DB_HOST=sentinel_db
+      - DB_USER=admin
+      - DB_PASS=password123
+      - DB_NAME=sentinel_hq
+      - REDIS_HOST=redis_db
     command: python -u server.py
     depends_on:
-      - redis_db
-      - sentinel_db
+      redis_db:
+        condition: service_healthy
+      sentinel_db:
+        condition: service_healthy
     networks:
       - sentinel_net
-
+  
   sentinel_uav:
     image: gcc:latest
     volumes:
