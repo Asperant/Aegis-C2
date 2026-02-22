@@ -8,6 +8,7 @@
 #include <cstdint>
 #include <netdb.h>
 #include <map>
+#include <cstdlib>
 
 #define SERVER_HOSTNAME "sentinel_gks"
 #define PORT 5000
@@ -43,6 +44,19 @@ struct UnackedPacket{
     uint64_t last_send_time;
     uint32_t current_timeout;
 };
+
+double to_rad(double degree){
+    return degree * M_PI / 180.0;
+}
+
+double calculate_distance(double lat1, double lon1, double lat2, double lon2){
+    double R = 6371.0;
+    double dLat = to_rad(lat2 - lat1);
+    double dLon = to_rad(lon2 - lon1);
+    double a = sin(dLat/2)*sin(dLat/2) + cos(to_rad(lat1))*cos(to_rad(lat2))*sin(dLon/2)*sin(dLon/2);
+    double c = 2 * atan2(sqrt(a), sqrt(1-a));
+    return R * c;
+}
 
 uint64_t get_time_ms(){
     struct timeval tv;
@@ -210,37 +224,64 @@ int main(){
     link.init_socket(SERVER_HOSTNAME, PORT);
 
     TelemetryPacket packet;
-
     memset(&packet, 0, sizeof(packet));
 
+    srand(time(NULL) ^ clock());
+    int my_uav_id = 100 + (rand() % 900);
+    if(getenv("UAV_ID")){
+        my_uav_id = atoi(getenv("UAV_ID"));
+    }
+
     packet.magic_byte = 0xFF;
-    packet.uav_id = 101;
+    packet.uav_id = my_uav_id;
     packet.battery = 100.0;
     packet.flight_mode = 1;
+    packet.speed = 25.0;
 
-    float angle = 0.1;
+    double current_lat = 37.8000;
+    double current_lon = 32.4000;
+
+    double target_lat = 39.9208;
+    double target_lon = 32.8541;
+
+    double gks_lat = 37.8715;
+    double gks_lon = 32.4930;
+
     uint32_t current_seq = 1;
-
     uint64_t last_send_time = 0;
 
-    cout << "🚁 İHA-1 (C++ Hibrit Sentinel Modu) Başlatıldı..." << endl;
+    cout << "🚁 İHA-" << my_uav_id << " (Otonom Navigasyon Modu) Başlatıldı..." << endl;
 
     while(1){
         uint64_t current_time = get_time_ms();
 
         link.listen_for_acks();
-
         link.check_retransmissions();
 
         if(current_time - last_send_time >= link.get_send_interval()){
-            packet.latitude = (int32_t)((37.8715 + (0.001 * sin(angle))) * GPS_SCALE);
-            packet.longitude = (int32_t)((32.4930 + (0.001 * cos(angle))) * GPS_SCALE);
-            packet.altitude = 500 + (10 * sin(angle * 2));
-            packet.speed = 80 + (rand() % 10);
-            packet.battery -= 2.0;
+            double dLat = target_lat - current_lat;
+            double dLon = target_lon - current_lon;
+            double dist_to_target = sqrt(dLat*dLat + dLon*dLon);
+
+            if(dist_to_target > 0.0001){
+                double delta_t = link.get_send_interval() / 1000.0;
+                double move_deg = (packet.speed * delta_t) / 111000.0;
+
+                if(move_deg > dist_to_target) move_deg = dist_to_target;
+
+                current_lat += (dLat / dist_to_target) * move_deg;
+                current_lon += (dLon / dist_to_target) * move_deg;
+            }
+
+            double distance_to_gks = calculate_distance(current_lat, current_lon, gks_lat, gks_lon);
+            cout << "   📍 GKS'ye Uzaklık: " << distance_to_gks << " km | Kalan Batarya: %" << packet.battery << endl;
+
+            packet.latitude = (int32_t)(current_lat * GPS_SCALE);
+            packet.longitude = (int32_t)(current_lon * GPS_SCALE);
+            packet.altitude = 500.0;
+            packet.battery -= 25.0;
             if(packet.battery < 0) packet.battery = 0;
-            angle += 0.1;
-            
+
             packet.seq_num = current_seq;
             packet.timestamp = current_time;
 

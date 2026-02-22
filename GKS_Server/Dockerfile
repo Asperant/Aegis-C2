@@ -1,7 +1,5 @@
-FROM python:3.9-slim
+FROM python:3.10-slim
 
-ENV PYTHONUNBUFFERED=1
+RUN apt-get update && apt-get install -y libpq-dev gcc && rm -rf /var/lib/apt/lists/*
 
-WORKDIR /app
-
-CMD ["tail","-f","/dev/null"]
+RUN pip install --no-cache-dir redis psycopg2-binary

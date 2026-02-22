@@ -1,22 +1,50 @@
 services:
-  uav_client:
-    build: ./UAV_Client
-    container_name: sentinel_uav
-    networks:
-      - sentinel_net
-    volumes:
-      - ./UAV_Client:/app
 
-  gks_server:
-    build: ./GKS_Server
-    container_name: sentinel_gks
+  redis_db:
+    image: redis:alpine
+    container_name: redis_db
     networks:
       - sentinel_net
-    ports:
-      - "5000:5000"
+  
+  sentinel_db:
+    image: postgres:15-alpine
+    container_name: sentinel_db
+    environment:
+        POSTGRES_USER: admin
+        POSTGRES_PASSWORD: password123
+        POSTGRES_DB: sentinel_hq
     volumes:
-      - ./GKS_Server:/app
+      - sentinel_pq_data:/var/lib/postgresql/data
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql
+    networks:
+      - sentinel_net
+
+  sentinel_gks:
+    build: ./GKS_Server
+    volumes:
+      - .:/app
+    working_dir: /app/GKS_Server
+    command: python -u server.py
+    depends_on:
+      - redis_db
+      - sentinel_db
+    networks:
+      - sentinel_net
+
+  sentinel_uav:
+    image: gcc:latest
+    volumes:
+      - .:/app
+    working_dir: /app/UAV_Client
+    command: bash -c "g++ client.cpp -o uav_app && ./uav_app"
+    depends_on:
+      - sentinel_gks
+    networks:
+      - sentinel_net
 
 networks:
   sentinel_net:
     driver: bridge
+
+volumes:
+  sentinel_pq_data:
