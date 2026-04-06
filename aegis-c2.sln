@@ -1,0 +1,28 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.0.31903.59
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Aegis_API", "Aegis_API\Aegis_API.csproj", "{7C7E39E3-670B-400E-B1BD-73916C90A41E}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Aegis_API.Tests", "tests\Aegis_API.Tests\Aegis_API.Tests.csproj", "{843DCC05-7426-4D08-B48A-9AE6ED4D584B}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{7C7E39E3-670B-400E-B1BD-73916C90A41E}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{7C7E39E3-670B-400E-B1BD-73916C90A41E}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{7C7E39E3-670B-400E-B1BD-73916C90A41E}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{7C7E39E3-670B-400E-B1BD-73916C90A41E}.Release|Any CPU.Build.0 = Release|Any CPU
+		{843DCC05-7426-4D08-B48A-9AE6ED4D584B}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{843DCC05-7426-4D08-B48A-9AE6ED4D584B}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{843DCC05-7426-4D08-B48A-9AE6ED4D584B}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{843DCC05-7426-4D08-B48A-9AE6ED4D584B}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+EndGlobal

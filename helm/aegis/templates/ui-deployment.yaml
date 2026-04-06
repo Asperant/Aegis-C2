@@ -1,0 +1,44 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: aegis-ui
+spec:
+  replicas: {{ .Values.replicas.ui }}
+  selector:
+    matchLabels:
+      app: aegis-ui
+  template:
+    metadata:
+      labels:
+        app: aegis-ui
+    spec:
+      containers:
+        - name: aegis-ui
+          image: "{{ .Values.images.ui.repository }}:{{ .Values.images.ui.tag }}"
+          imagePullPolicy: {{ .Values.images.ui.pullPolicy }}
+          ports:
+            - containerPort: 80
+          env:
+            - name: VITE_API_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: aegis-config
+                  key: VITE_API_URL
+            - name: VITE_HUB_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: aegis-config
+                  key: VITE_HUB_URL
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: aegis-ui-service
+spec:
+  type: NodePort
+  selector:
+    app: aegis-ui
+  ports:
+    - port: {{ .Values.services.ui.port }}
+      targetPort: 80
+      nodePort: {{ .Values.services.ui.nodePort }}

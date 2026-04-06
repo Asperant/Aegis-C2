@@ -1,0 +1,95 @@
+# =============================================
+# Aegis C2 — Helm Values
+# =============================================
+
+# --- Global ---
+namespace: default
+
+# --- Image Ayarları ---
+images:
+  api:
+    repository: aegis-c2-aegis_api
+    tag: latest
+    pullPolicy: IfNotPresent
+  gks:
+    repository: aegis-c2-aegis_gks
+    tag: latest
+    pullPolicy: IfNotPresent
+  uav:
+    repository: aegis-c2-aegis_uav
+    tag: latest
+    pullPolicy: IfNotPresent
+  ui:
+    repository: aegis-c2-aegis_ui
+    tag: latest
+    pullPolicy: IfNotPresent
+
+# --- Replica Sayıları ---
+replicas:
+  api: 1
+  gks: 1
+  ui: 1
+
+# --- Veritabanı ---
+database:
+  image: postgres:15-alpine
+  user: admin
+  password: CHANGE_ME_IN_PRODUCTION
+  name: aegis_hq
+  storage: 5Gi
+
+# --- Redis ---
+redis:
+  image: redis:alpine
+
+# --- JWT ---
+jwt:
+  secret: CHANGE_ME_USE_K8S_SECRET_OR_VALUES_OVERRIDE
+  issuer: Aegis_HQ
+  audience: Aegis_UI
+
+# --- Auth ---
+auth:
+  username: commander
+  password: CHANGE_ME_IN_PRODUCTION
+
+# --- Service Portları ---
+services:
+  api:
+    port: 8080
+    nodePort: 30001
+  ui:
+    port: 80
+    nodePort: 30002
+  gks:
+    port: 5000
+
+# --- Frontend URLs ---
+frontend:
+  apiUrl: "http://192.168.49.2:30001/api"
+  hubUrl: "http://192.168.49.2:30001/telemetryHub"
+  url: "http://192.168.49.2:30002"
+
+# --- Resource Limits ---
+resources:
+  api:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+  gks:
+    requests:
+      cpu: 100m
+      memory: 64Mi
+    limits:
+      cpu: 300m
+      memory: 256Mi
+  uav:
+    requests:
+      cpu: 50m
+      memory: 32Mi
+    limits:
+      cpu: 200m
+      memory: 128Mi

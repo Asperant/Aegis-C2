@@ -1,0 +1,205 @@
+name: Aegis C2 — CI Pipeline
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ============================================
+  # Job 1: .NET API Build & Restore
+  # ============================================
+  build-api:
+    name: Build Aegis API (.NET)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: ./Aegis_API
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET 8
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Restore NuGet Packages
+        run: dotnet restore
+
+      - name: Build
+        run: dotnet build --no-restore --configuration Release
+
+      - name: Test
+        run: dotnet test ../tests/Aegis_API.Tests/Aegis_API.Tests.csproj --configuration Release
+
+      - name: Publish
+        run: dotnet publish -c Release -o ./publish /p:UseAppHost=false
+
+  # ============================================
+  # Job 2: C++ UAV Client Build
+  # ============================================
+  build-uav:
+    name: Build UAV Client (C++)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: ./UAV_Client
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Dependencies
+        run: sudo apt-get update && sudo apt-get install -y cmake build-essential libssl-dev
+
+      - name: CMake Configure
+        run: cmake -B build -S .
+
+      - name: CMake Build
+        run: cmake --build build
+
+  # ============================================
+  # Job 3: React UI Build
+  # ============================================
+  build-ui:
+    name: Build Aegis UI (React)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: ./aegis-ui
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: aegis-ui/package-lock.json
+
+      - name: Install Dependencies
+        run: npm ci
+
+      - name: Test
+        run: npm run test
+
+      - name: Build
+        run: npm run build
+        env:
+          VITE_API_URL: http://localhost:5247/api
+          VITE_HUB_URL: http://localhost:5247/telemetryHub
+
+      - name: Lint Check
+        run: npx eslint . --max-warnings 0
+
+  # ============================================
+  # Job 4: Python GKS Tests
+  # ============================================
+  test-gks:
+    name: Test GKS Server (Python)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install Test Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r GKS_Server/requirements-dev.txt
+          pip install cryptography
+
+      - name: Run Pytest
+        run: python -m pytest -q
+
+  # ============================================
+  # Job 5: Docker Compose Integration Test
+  # ============================================
+  docker-integration:
+    name: Docker Compose Integration
+    runs-on: ubuntu-latest
+    needs: [build-api, build-uav, build-ui, test-gks]
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Create .env file
+        run: |
+          cat > .env << 'EOF'
+          DB_USER=admin
+          DB_PASS=ci_test_password_123
+          DB_NAME=aegis_hq
+          REDIS_HOST=redis_db
+          REDIS_PORT=6379
+          JWT_SECRET=ci_test_jwt_secret_key_that_is_long_enough_for_testing_purposes_64chars
+          JWT_ISSUER=Aegis_HQ
+          JWT_AUDIENCE=Aegis_UI
+          AUTH_USERNAME=commander
+          AUTH_PASSWORD=ci_test_password
+          GKS_KEY_PASSPHRASE=
+          EOF
+
+      - name: Generate Crypto Keys
+        run: python3 generate_keys.py
+
+      - name: Build & Start Services
+        run: docker compose up --build -d
+
+      - name: Show Service Status
+        run: docker compose ps
+
+      - name: Wait for API readiness
+        run: |
+          for attempt in {1..30}; do
+            if curl -fsS http://localhost:5247/ >/dev/null; then
+              echo "API is reachable."
+              exit 0
+            fi
+            echo "Attempt ${attempt}/30: API not ready yet."
+            sleep 2
+          done
+          echo "API did not become ready in time."
+          docker compose ps
+          exit 1
+
+      - name: Health Check — API
+        run: curl -fsS http://localhost:5247/ >/dev/null
+
+      - name: Health Check — Login Test
+        run: |
+          RESPONSE=$(curl -sS -o /tmp/login_response.json -w "%{http_code}" \
+            -X POST http://localhost:5247/api/auth/login \
+            -H "Content-Type: application/json" \
+            -d '{"username":"commander","password":"ci_test_password"}')
+          echo "Login response code: $RESPONSE"
+          if [ "$RESPONSE" != "200" ]; then
+            echo "Login response body:"
+            cat /tmp/login_response.json
+            exit 1
+          fi
+
+      - name: Collect Logs on Failure
+        if: failure()
+        run: docker compose logs
+
+      - name: Cleanup
+        if: always()
+        run: docker compose down -v

@@ -1,0 +1,54 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: aegis-gks
+spec:
+  replicas: {{ .Values.replicas.gks }}
+  selector:
+    matchLabels:
+      app: aegis-gks
+  template:
+    metadata:
+      labels:
+        app: aegis-gks
+    spec:
+      containers:
+        - name: aegis-gks
+          image: "{{ .Values.images.gks.repository }}:{{ .Values.images.gks.tag }}"
+          imagePullPolicy: {{ .Values.images.gks.pullPolicy }}
+          ports:
+            - containerPort: {{ .Values.services.gks.port }}
+              protocol: UDP
+          envFrom:
+            - configMapRef:
+                name: aegis-config
+            - secretRef:
+                name: aegis-secrets
+          env:
+            - name: POD_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.podIP
+          volumeMounts:
+            - name: keys-volume
+              mountPath: /app/keys
+              readOnly: true
+          resources:
+            {{- toYaml .Values.resources.gks | nindent 12 }}
+      volumes:
+        - name: keys-volume
+          secret:
+            secretName: crypto-keys
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: aegis-gks-service
+spec:
+  type: ClusterIP
+  selector:
+    app: aegis-gks
+  ports:
+    - port: {{ .Values.services.gks.port }}
+      targetPort: {{ .Values.services.gks.port }}
+      protocol: UDP

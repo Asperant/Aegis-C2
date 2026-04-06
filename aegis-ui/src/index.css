@@ -1,0 +1,25 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Ensure Leaflet map fills available container area */
+.leaflet-container {
+  height: 100% !important;
+  width: 100% !important;
+  background: #0f172a;
+}
+
+/* Prevent Tailwind image reset from breaking Leaflet tiles */
+.leaflet-tile-pane img {
+  max-width: none !important;
+}
+
+/* Keep Leaflet panes stacked in expected order */
+.leaflet-pane {
+  z-index: 1;
+}
+
+.leaflet-top,
+.leaflet-bottom {
+  z-index: 1000;
+}

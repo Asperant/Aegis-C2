@@ -1,0 +1,17 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: aegis-config
+data:
+  DB_HOST: "aegis-db-service"
+  DB_USER: {{ .Values.database.user | quote }}
+  DB_NAME: {{ .Values.database.name | quote }}
+  REDIS_HOST: "redis-service"
+  Redis__ConnectionString: "redis-service:6379,abortConnect=false"
+  Frontend__Url: {{ .Values.frontend.url | quote }}
+  ASPNETCORE_HTTP_PORTS: {{ .Values.services.api.port | quote }}
+  VITE_API_URL: {{ .Values.frontend.apiUrl | quote }}
+  VITE_HUB_URL: {{ .Values.frontend.hubUrl | quote }}
+  Jwt__Issuer: {{ .Values.jwt.issuer | quote }}
+  Jwt__Audience: {{ .Values.jwt.audience | quote }}
+  Auth__CommanderUsername: {{ .Values.auth.username | quote }}

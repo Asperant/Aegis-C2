@@ -1,0 +1,93 @@
+name: Aegis C2 Release Artifacts
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    name: Build and Publish Artifacts
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: aegis-ui/package-lock.json
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install Python test dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r GKS_Server/requirements-dev.txt
+          pip install cryptography
+
+      - name: Build and test API
+        run: |
+          dotnet build aegis-c2.sln -c Release
+          dotnet test tests/Aegis_API.Tests/Aegis_API.Tests.csproj -c Release
+          dotnet publish Aegis_API/Aegis_API.csproj -c Release -o artifacts/api
+
+      - name: Build and test UI
+        working-directory: aegis-ui
+        run: |
+          npm ci
+          npm run lint
+          npm run test
+          npm run build
+          cp -r dist ../artifacts/ui-dist
+
+      - name: Install C++ dependencies
+        run: sudo apt-get update && sudo apt-get install -y cmake build-essential libssl-dev
+
+      - name: Build UAV client
+        run: |
+          cmake -B UAV_Client/build -S UAV_Client
+          cmake --build UAV_Client/build
+          mkdir -p artifacts/uav
+          if [ -f UAV_Client/build/UAV_Client ]; then
+            cp UAV_Client/build/UAV_Client artifacts/uav/uav_client_linux
+          elif [ -f UAV_Client/build/uav_client ]; then
+            cp UAV_Client/build/uav_client artifacts/uav/uav_client_linux
+          else
+            echo "UAV binary not found after build."
+            exit 1
+          fi
+
+      - name: Run GKS tests
+        run: python -m pytest -q
+
+      - name: Package artifacts
+        run: |
+          VERSION="${GITHUB_REF_NAME}"
+          mkdir -p packaged
+          cd artifacts/api && zip -r ../../packaged/aegis-api-publish-${VERSION}.zip . && cd ../../
+          cd artifacts/ui-dist && zip -r ../../packaged/aegis-ui-dist-${VERSION}.zip . && cd ../../
+          cd artifacts/uav && tar -czf ../../packaged/uav-client-linux-${VERSION}.tar.gz . && cd ../../
+
+      - name: Publish GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            packaged/aegis-api-publish-*.zip
+            packaged/aegis-ui-dist-*.zip
+            packaged/uav-client-linux-*.tar.gz
+          body_path: .github/release-template.md

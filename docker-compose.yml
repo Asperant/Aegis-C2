@@ -1,71 +1,71 @@
+version: "3.8"
+
 services:
-  
+  aegis_gks:
+    build: 
+      context: ./GKS_Server
+    image: aegis-c2-aegis_gks:latest
+    environment:
+      DB_HOST: ${DB_HOST:-aegis_db}
+      DB_USER: ${DB_USER:-admin}
+      DB_PASS: ${DB_PASS:-CHANGE_ME_LOCAL_PASSWORD}
+      DB_NAME: ${DB_NAME:-aegis_hq}
+      REDIS_HOST: ${REDIS_HOST:-redis_db}
+      REDIS_PORT: ${REDIS_PORT:-6379}
+      GKS_KEY_PASSPHRASE: ${GKS_KEY_PASSPHRASE:-}
+    volumes:
+      - ./keys:/app/keys:ro
+
+  aegis_api:
+    build: 
+      context: ./Aegis_API
+    image: aegis-c2-aegis_api:latest
+    environment:
+      DB_PASS: ${DB_PASS:-CHANGE_ME_LOCAL_PASSWORD}
+      Auth__CommanderPassword: ${AUTH_PASSWORD:-}
+      Jwt__Secret: ${JWT_SECRET:-}
+      HOST_KEYS_PATH: ${HOST_KEYS_PATH:-}
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+
+  aegis_ui:
+    build:
+      context: ./aegis-ui
+      args:
+        - VITE_API_URL=/api
+        - VITE_HUB_URL=/telemetryHub
+    image: aegis-c2-aegis_ui:latest
+
+  aegis_uav:
+    build: 
+      context: ./UAV_Client
+    image: aegis-c2-aegis_uav:latest
+    volumes:
+      - ./keys:/keys:ro
+
+  aegis_gateway:
+    build: 
+      context: ./nginx
+    image: aegis-c2-aegis_gateway:latest
+    ports:
+      - "8080:80"
+    depends_on:
+      - aegis_api
+      - aegis_ui
+      - aegis_gks
+
   redis_db:
     image: redis:alpine
-    container_name: redis_db
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 5s
-      timeout: 3s
-      retries: 5
-    networks:
-      - sentinel_net
-    
-  sentinel_db:
+    ports:
+      - "6379:6379"
+
+  aegis_db:
     image: postgres:15-alpine
-    container_name: sentinel_db
     environment:
-      POSTGRES_USER: admin
-      POSTGRES_PASSWORD: password123
-      POSTGRES_DB: sentinel_hq
+      POSTGRES_USER: ${DB_USER:-admin}
+      POSTGRES_PASSWORD: ${DB_PASS:-CHANGE_ME_LOCAL_PASSWORD}
+      POSTGRES_DB: ${DB_NAME:-aegis_hq}
+    ports:
+      - "5432:5432"
     volumes:
-      - sentinel_pq_data:/var/lib/postgresql/data
-      - ./init.sql:/docker-entrypoint-initdb.d/init.sql
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U admin -d sentinel_hq"]
-      interval: 5s
-      timeout: 3s
-      retries: 5
-    networks:
-      - sentinel_net
-  
-  sentinel_gks:
-    build: ./GKS_Server
-    volumes:
-      - .:/app
-    working_dir: /app/GKS_Server
-    environment:
-      - DB_HOST=sentinel_db
-      - DB_USER=admin
-      - DB_PASS=password123
-      - DB_NAME=sentinel_hq
-      - REDIS_HOST=redis_db
-      - AES_PSK=SuperSecretKey123456789012345678
-    command: python -u server.py
-    depends_on:
-      redis_db:
-        condition: service_healthy
-      sentinel_db:
-        condition: service_healthy
-    networks:
-      - sentinel_net
-  
-  sentinel_uav:
-    build: ./UAV_Client
-    volumes:
-      - .:/app
-    working_dir: /app/UAV_Client
-    environment:
-      - AES_PSK=SuperSecretKey123456789012345678
-    command: bash -c "g++ client.cpp -lssl -lcrypto -o uav_app && ./uav_app"
-    depends_on:
-      - sentinel_gks
-    networks:
-      - sentinel_net
-
-networks:
-  sentinel_net:
-    driver: bridge
-
-volumes:
-  sentinel_pq_data:
+      - ./helm/aegis/init.sql:/docker-entrypoint-initdb.d/init.sql:ro

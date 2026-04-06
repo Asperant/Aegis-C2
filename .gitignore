@@ -1,14 +1,45 @@
+## Build outputs
 *.o
 uav_app
+uav_client
 *.exe
 *.out
 
+## Python
 __pycache__/
 *.py[cod]
 
+## .NET
+bin/
+obj/
+
+## Node
+node_modules/
+
+## Docker
 .docker/
 
+## Logs
+*.log
+Logs/
+
+## OS
 .DS_Store
 Thumbs.db
 
+## IDE
 .vscode/
+.idea/
+
+## Secrets - never commit credentials or private keys
+.env
+keys/*.pem
+keys/*.key
+!keys/README.md
+
+## Extra build artifacts
+
+aegis-ui/dist/
+UAV_Client/build/
+CMakeFiles/
+CMakeCache.txt
