@@ -43,7 +43,15 @@ const createUavIcon = (isStale) => {
   });
 };
 
-function MapInteractionHandler({ interactionMode, setInteractionMode, setStagedWaypoints, pendingManeuver, setPendingManeuver, selectedDrone }) {
+function MapInteractionHandler({
+  interactionMode,
+  setStagedWaypoints,
+  pendingManeuver,
+  selectedDrone,
+  onSpawnUav,
+  onSpawnGks,
+  onSelectManeuverTarget
+}) {
   const modeRef = React.useRef(interactionMode);
   const pendingManeuverRef = React.useRef(pendingManeuver);
   const selectedDroneRef = React.useRef(selectedDrone);
@@ -55,36 +63,32 @@ function MapInteractionHandler({ interactionMode, setInteractionMode, setStagedW
   useMapEvents({
     click(e) {
       if (modeRef.current === 'SPAWN_UAV') {
-        axios.post(`${AEGIS_API_URL}/deployment/spawn-uav`, { lat: e.latlng.lat, lon: e.latlng.lng })
-          .then(() => {
-            setInteractionMode('NONE');
-          })
-          .catch(() => {});
+        onSpawnUav?.(e.latlng.lat, e.latlng.lng);
       } else if (modeRef.current === 'SPAWN_GKS') {
-        axios.post(`${AEGIS_API_URL}/deployment/spawn-gks`, { lat: e.latlng.lat, lon: e.latlng.lng })
-          .then(() => {
-            setInteractionMode('NONE');
-          })
-          .catch(() => {});
+        onSpawnGks?.(e.latlng.lat, e.latlng.lng);
       } else if (modeRef.current === 'DRAW_ROUTE') {
         setStagedWaypoints(prev => [...prev, e.latlng]);
       } else if (modeRef.current === 'SELECT_MANEUVER_TARGET' && pendingManeuverRef.current && selectedDroneRef.current) {
-        axios.post(`${AEGIS_API_URL}/tactical/command`, {
+        onSelectManeuverTarget?.({
           uavId: selectedDroneRef.current.id,
           commandType: pendingManeuverRef.current,
           lat: e.latlng.lat,
           lng: e.latlng.lng
-        })
-        .then(() => {
-          setInteractionMode('NONE');
-          setPendingManeuver(null);
-        })
-        .catch(() => {});
+        });
       }
     }
   });
   return null;
 }
+
+const getApiErrorMessage = (error, fallbackMessage) => {
+  const data = error?.response?.data;
+  if (typeof data?.message === 'string' && data.message.trim() !== '') return data.message;
+  if (Array.isArray(data?.Errors) && data.Errors.length > 0) return data.Errors.join(' | ');
+  if (typeof data?.title === 'string' && data.title.trim() !== '') return data.title;
+  if (typeof error?.message === 'string' && error.message.trim() !== '') return error.message;
+  return fallbackMessage;
+};
 
 function MapVisibilityHandler({ isActive }) {
   const map = useMap();
@@ -137,6 +141,84 @@ export default function MapDisplay({ drones, activeGks, selectedDrone, setSelect
   // Fallback map center when no active GKS is present.
   const defaultCenter = [37.8728, 32.4922];
   const mapCenter = activeGks && activeGks.length > 0 ? [activeGks[0].lat, activeGks[0].lng] : defaultCenter;
+  const [interactionFeedback, setInteractionFeedback] = React.useState(null);
+
+  React.useEffect(() => {
+    if (!interactionFeedback) return undefined;
+    const timer = setTimeout(() => setInteractionFeedback(null), 6000);
+    return () => clearTimeout(timer);
+  }, [interactionFeedback]);
+
+  const activeModeHint = interactionMode === 'SPAWN_UAV'
+    ? 'SPAWN İHA modu aktif: Haritada bir noktaya tıkla.'
+    : interactionMode === 'SPAWN_GKS'
+      ? 'SPAWN GKS modu aktif: Haritada bir noktaya tıkla.'
+      : interactionMode === 'SELECT_MANEUVER_TARGET'
+        ? 'Manevra hedef seçimi aktif: Haritada hedef koordinatı seç.'
+        : null;
+
+  const handleSpawnUav = React.useCallback((lat, lon) => {
+    setInteractionFeedback({ tone: 'info', text: 'İHA spawn isteği gönderiliyor...' });
+    axios.post(`${AEGIS_API_URL}/deployment/spawn-uav`, { lat, lon })
+      .then((response) => {
+        const message = typeof response?.data?.message === 'string'
+          ? response.data.message
+          : 'İHA spawn isteği alındı.';
+        setInteractionFeedback({
+          tone: 'success',
+          text: `${message} Haritada görünmesi için birkaç saniye telemetri beklenebilir.`
+        });
+        setInteractionMode('NONE');
+      })
+      .catch((error) => {
+        setInteractionFeedback({
+          tone: 'error',
+          text: getApiErrorMessage(error, 'İHA spawn isteği başarısız oldu.')
+        });
+      });
+  }, [setInteractionMode]);
+
+  const handleSpawnGks = React.useCallback((lat, lon) => {
+    setInteractionFeedback({ tone: 'info', text: 'GKS spawn isteği gönderiliyor...' });
+    axios.post(`${AEGIS_API_URL}/deployment/spawn-gks`, { lat, lon })
+      .then((response) => {
+        const message = typeof response?.data?.message === 'string'
+          ? response.data.message
+          : 'GKS spawn isteği alındı.';
+        setInteractionFeedback({
+          tone: 'success',
+          text: `${message} Marker’ın görünmesi için birkaç saniye beklenebilir.`
+        });
+        setInteractionMode('NONE');
+      })
+      .catch((error) => {
+        setInteractionFeedback({
+          tone: 'error',
+          text: getApiErrorMessage(error, 'GKS spawn isteği başarısız oldu.')
+        });
+      });
+  }, [setInteractionMode]);
+
+  const handleSelectManeuverTarget = React.useCallback((payload) => {
+    axios.post(`${AEGIS_API_URL}/tactical/command`, payload)
+      .then(() => {
+        setInteractionFeedback({ tone: 'success', text: 'Manevra komutu gönderildi.' });
+        setInteractionMode('NONE');
+        setPendingManeuver(null);
+      })
+      .catch((error) => {
+        setInteractionFeedback({
+          tone: 'error',
+          text: getApiErrorMessage(error, 'Manevra komutu gönderilemedi.')
+        });
+      });
+  }, [setInteractionMode, setPendingManeuver]);
+
+  const statusClassByTone = {
+    info: 'border-blue-500/50 bg-blue-950/85 text-blue-200',
+    success: 'border-emerald-500/50 bg-emerald-950/85 text-emerald-200',
+    error: 'border-red-500/50 bg-red-950/85 text-red-200'
+  };
 
   return (
     <div className={`flex-1 min-h-0 relative bg-slate-950 z-0 ${interactionMode !== 'NONE' ? 'cursor-crosshair' : ''}`}>
@@ -154,10 +236,13 @@ export default function MapDisplay({ drones, activeGks, selectedDrone, setSelect
         <TileLayer url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png" />
         <MapVisibilityHandler isActive={isActive} />
         <MapInteractionHandler 
-          interactionMode={interactionMode} setInteractionMode={setInteractionMode} 
+          interactionMode={interactionMode}
           setStagedWaypoints={setStagedWaypoints} 
-          pendingManeuver={pendingManeuver} setPendingManeuver={setPendingManeuver}
+          pendingManeuver={pendingManeuver}
           selectedDrone={selectedDrone}
+          onSpawnUav={handleSpawnUav}
+          onSpawnGks={handleSpawnGks}
+          onSelectManeuverTarget={handleSelectManeuverTarget}
         />
 
         {/* 1) GKS markers (Redis-backed) */}
@@ -266,6 +351,22 @@ export default function MapDisplay({ drones, activeGks, selectedDrone, setSelect
       <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 pointer-events-none opacity-20 z-[1000]">
         <Crosshair size={300} strokeWidth={0.5} />
       </div>
+
+      {activeModeHint && (
+        <div className="absolute top-[88px] left-1/2 -translate-x-1/2 z-[1100] pointer-events-none">
+          <div className="px-3 py-1.5 rounded border border-cyan-500/40 bg-slate-900/90 text-cyan-200 text-xs font-semibold tracking-wide shadow-lg backdrop-blur-sm">
+            {activeModeHint}
+          </div>
+        </div>
+      )}
+
+      {interactionFeedback && (
+        <div className="absolute bottom-20 left-1/2 -translate-x-1/2 z-[1100] pointer-events-none max-w-[80%]">
+          <div className={`px-3 py-2 rounded border text-xs font-semibold tracking-wide shadow-xl backdrop-blur-sm ${statusClassByTone[interactionFeedback.tone] || statusClassByTone.info}`}>
+            {interactionFeedback.text}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -86,7 +86,7 @@ kubectl create secret generic crypto-keys \
   --dry-run=client -o yaml | kubectl apply -f -
 log_ok "Crypto key secret applied."
 
-log_info "Step 4/4: Deploying Helm chart."
+log_info "Step 4/5: Deploying Helm chart."
 chmod +x ./helm_cmd
 HELM_SET_ARGS=(
   --set-string "database.user=${DB_USER}"
@@ -103,6 +103,30 @@ HELM_SET_ARGS=(
 )
 ./helm_cmd upgrade --install aegis ./helm/aegis -n default --create-namespace --wait "${HELM_SET_ARGS[@]}"
 log_ok "Helm deployment completed."
+
+log_info "Step 5/5: Verifying PostgreSQL database bootstrap."
+DB_POD="$(kubectl get pod -n default -l app=aegis-db -o jsonpath='{.items[0].metadata.name}')"
+if [[ -z "${DB_POD}" ]]; then
+  log_error "aegis-db pod could not be found."
+  exit 1
+fi
+
+kubectl wait --for=condition=ready "pod/${DB_POD}" -n default --timeout=120s >/dev/null
+
+DB_EXISTS="$(kubectl exec -n default "${DB_POD}" -- env PGPASSWORD="${DB_PASS}" \
+  psql -h 127.0.0.1 -U "${DB_USER}" -d template1 -tAc "SELECT 1 FROM pg_database WHERE datname='${DB_NAME}'" | tr -d '[:space:]')"
+
+if [[ "${DB_EXISTS}" != "1" ]]; then
+  log_warn "Database '${DB_NAME}' not found. Creating it now."
+  kubectl exec -n default "${DB_POD}" -- env PGPASSWORD="${DB_PASS}" \
+    psql -h 127.0.0.1 -U "${DB_USER}" -d template1 -v ON_ERROR_STOP=1 \
+    -c "CREATE DATABASE \"${DB_NAME}\""
+fi
+
+kubectl exec -i -n default "${DB_POD}" -- env PGPASSWORD="${DB_PASS}" \
+  psql -h 127.0.0.1 -U "${DB_USER}" -d "${DB_NAME}" -v ON_ERROR_STOP=1 \
+  < helm/aegis/init.sql
+log_ok "PostgreSQL database '${DB_NAME}' is ready."
 
 log_ok "Aegis C2 is ready on Kubernetes."
 echo
