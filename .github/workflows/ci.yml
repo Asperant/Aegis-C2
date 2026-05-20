@@ -26,7 +26,7 @@ jobs:
         working-directory: ./Aegis_API
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Setup .NET 8
         uses: actions/setup-dotnet@v4
@@ -57,7 +57,7 @@ jobs:
         working-directory: ./UAV_Client
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Install Dependencies
         run: sudo apt-get update && sudo apt-get install -y cmake build-essential libssl-dev
@@ -80,7 +80,7 @@ jobs:
         working-directory: ./aegis-ui
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Setup Node.js 20
         uses: actions/setup-node@v4
@@ -113,7 +113,7 @@ jobs:
     timeout-minutes: 10
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Setup Python
         uses: actions/setup-python@v5
@@ -139,7 +139,7 @@ jobs:
     timeout-minutes: 20
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Create .env file
         run: |
