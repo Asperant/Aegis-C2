@@ -84,7 +84,7 @@ jobs:
           cd artifacts/uav && tar -czf ../../packaged/uav-client-linux-${VERSION}.tar.gz . && cd ../../
 
       - name: Publish GitHub release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           files: |
             packaged/aegis-api-publish-*.zip
